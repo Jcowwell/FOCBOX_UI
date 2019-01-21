@@ -54,29 +54,39 @@ void BleUart::startConnect(QString addr)
 {
     disconnectBle();
 
-    mUartServiceFound = false;
-    mConnectDone = false;
+        mUartServiceFound = false;
+        mConnectDone = false;
 
-    mControl = new QLowEnergyController(QBluetoothAddress(addr));
+    #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+        // Create BT Controller from unique device UUID stored as addr. Creating
+        // a controller using a devices address is not supported on macOS or iOS.
+        QBluetoothDeviceInfo deviceInfo = QBluetoothDeviceInfo();
+        deviceInfo.setDeviceUuid(QBluetoothUuid(addr));
+        mControl = new QLowEnergyController(deviceInfo);
 
-    mControl->setRemoteAddressType(QLowEnergyController::RandomAddress);
+    #else
+        mControl = new QLowEnergyController(QBluetoothAddress(addr));
 
-    connect(mControl, SIGNAL(serviceDiscovered(QBluetoothUuid)),
-            this, SLOT(serviceDiscovered(QBluetoothUuid)));
-    connect(mControl, SIGNAL(discoveryFinished()),
-            this, SLOT(serviceScanDone()));
-    connect(mControl, SIGNAL(error(QLowEnergyController::Error)),
-            this, SLOT(controllerError(QLowEnergyController::Error)));
-    connect(mControl, SIGNAL(connected()),
-            this, SLOT(deviceConnected()));
-    connect(mControl, SIGNAL(disconnected()),
-            this, SLOT(deviceDisconnected()));
-    connect(mControl, SIGNAL(stateChanged(QLowEnergyController::ControllerState)),
-            this, SLOT(controlStateChanged(QLowEnergyController::ControllerState)));
-    connect(mControl, SIGNAL(connectionUpdated(QLowEnergyConnectionParameters)),
-            this, SLOT(connectionUpdated(QLowEnergyConnectionParameters)));
+    #endif
 
-    mControl->connectToDevice();
+        mControl->setRemoteAddressType(QLowEnergyController::RandomAddress);
+
+        connect(mControl, SIGNAL(serviceDiscovered(QBluetoothUuid)),
+                this, SLOT(serviceDiscovered(QBluetoothUuid)));
+        connect(mControl, SIGNAL(discoveryFinished()),
+                this, SLOT(serviceScanDone()));
+        connect(mControl, SIGNAL(error(QLowEnergyController::Error)),
+                this, SLOT(controllerError(QLowEnergyController::Error)));
+        connect(mControl, SIGNAL(connected()),
+                this, SLOT(deviceConnected()));
+        connect(mControl, SIGNAL(disconnected()),
+                this, SLOT(deviceDisconnected()));
+        connect(mControl, SIGNAL(stateChanged(QLowEnergyController::ControllerState)),
+                this, SLOT(controlStateChanged(QLowEnergyController::ControllerState)));
+        connect(mControl, SIGNAL(connectionUpdated(QLowEnergyConnectionParameters)),
+                this, SLOT(connectionUpdated(QLowEnergyConnectionParameters)));
+
+        mControl->connectToDevice();
 }
 
 void BleUart::refreshDevice()
@@ -85,7 +95,6 @@ void BleUart::refreshDevice()
     mService->discoverDetails();
     //mControl->requestConnectionUpdate(mService);
 }
-
 
 void BleUart::disconnectBle()
 {
@@ -131,11 +140,18 @@ void BleUart::writeData(QByteArray data)
 void BleUart::addDevice(const QBluetoothDeviceInfo &dev)
 {
     if (dev.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration) {
-        qDebug() << "BLE scan found device:" << dev.name();
+            qDebug() << "BLE scan found device:" << dev.name();
 
-        mDevs.insert(dev.name(), dev.address().toString());
+    #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+            // macOS and iOS do not expose the hardware address of BLTE devices, must use
+            // the OS generated UUID.
+            mDevs.insert(dev.deviceUuid().toString(), dev.name());
+    #else
+            mDevs.insert(dev.address().toString(), dev.name());
 
-        emit scanDone(mDevs, false);
+    #endif
+
+            emit scanDone(mDevs, false);
     }
 }
 
@@ -206,8 +222,6 @@ void BleUart::deviceConnected()
     qDebug() << "BLE device connected";
     mControl->discoverServices();
 }
-
-
 
 void BleUart::deviceDisconnected()
 {
@@ -292,3 +306,4 @@ void BleUart::connectionUpdated(const QLowEnergyConnectionParameters &newParamet
     (void)newParameters;
     qDebug() << "BLE connection parameters updated";
 }
+
